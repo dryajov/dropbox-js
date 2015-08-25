@@ -15,6 +15,12 @@ class Dropbox.Client
   #   use this option
   # @option options {String} token (optional) the user's OAuth 2.0 access token
   # @option options {String} uid (optional) the user's Dropbox UID
+  # @option options {Number} maxApiServer in order to work around really low
+  #   per-host connection limits in older versions of Internet Explorer,
+  #   dropbox.js uses a random alternative name for the API server, like
+  #   api18.dropbox.com; when set to 0, only api.dropbox.com will be used; this
+  #   can be set to 0 (or a really low number) when using a CSP
+  #   (Content-Security-Policy) to simplify the policy
   #
   # @see Dropbox.Client#credentials
   constructor: (options) ->
@@ -165,11 +171,12 @@ class Dropbox.Client
           if @_driver.getStateParam
             @_driver.getStateParam (stateParam) =>
               # NOTE: the driver might have injected the state param itself
-              if @client.authStep is DbxClient.RESET
+              if @authStep is DbxClient.RESET
                 @_oauth.setAuthStateParam stateParam
               _fsmNextStep()
-          @_oauth.setAuthStateParam Dropbox.Util.Oauth.randomAuthStateParam()
-          _fsmNextStep()
+          else
+            @_oauth.setAuthStateParam Dropbox.Util.Oauth.randomAuthStateParam()
+            _fsmNextStep()
 
         when DbxClient.PARAM_SET
           # Ask the user for authorization.
@@ -179,9 +186,13 @@ class Dropbox.Client
           authUrl = @authorizeUrl()
           @_driver.doAuthorize authUrl, @_oauth.authStateParam(), @,
               (queryParams) =>
-                @_oauth.processRedirectParams queryParams
-                @_uid = queryParams.uid if queryParams.uid
-                _fsmNextStep()
+                if queryParams
+                  @_oauth.processRedirectParams queryParams
+                  @_uid = queryParams.uid if queryParams.uid
+                  _fsmNextStep()
+                else
+                  @authError = new Error 'User canceled authorization'
+                  _fsmErrorStep()
 
         when DbxClient.PARAM_LOADED
           # Check a previous state parameter.
@@ -192,9 +203,13 @@ class Dropbox.Client
             return
           @_driver.resumeAuthorize @_oauth.authStateParam(), @,
               (queryParams) =>
-                @_oauth.processRedirectParams queryParams
-                @_uid = queryParams.uid if queryParams.uid
-                _fsmNextStep()
+                if queryParams
+                  @_oauth.processRedirectParams queryParams
+                  @_uid = queryParams.uid if queryParams.uid
+                  _fsmNextStep()
+                else
+                  @authError = new Error 'User canceled authorization'
+                  _fsmErrorStep()
 
         when DbxClient.AUTHORIZED
           # Request token authorized, switch it for an access token.
@@ -943,6 +958,21 @@ class Dropbox.Client
     xhr = new Dropbox.Util.Xhr 'GET',
                                "#{@_urls.thumbnails}/#{@_urlEncodePath(path)}"
     xhr.setParams params
+
+  # Creates an URL that retrieves a file stored in Dropbox.
+  #
+  # This method has subtle security implications! The URL embeds the user's
+  # access token. Power users often share deep URLs assuming that they only
+  # grant access to the resource that they point to.
+  #
+  # @param {String} path the path of the file to be read, relative to the
+  #   user's Dropbox or to the application's folder
+  # @return {String} a URL to the given file that embeds the client's access
+  #   token
+  subtleFileUrl: (path, callback) ->
+    xhr = new Dropbox.Util.Xhr 'GET',
+                               "#{@_urls.getFile}/#{@_urlEncodePath(path)}"
+    xhr.addOauthParams(@_oauth).paramsToUrl().url
 
   # Reverts a file's contents to a previous version.
   #

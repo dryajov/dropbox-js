@@ -76,6 +76,12 @@ class Dropbox.AuthDriver.ChromeBase extends Dropbox.AuthDriver.BrowserBase
     chrome.storage.local.remove @storageKey, callback
     @
 
+  # @private
+  # Overrides {Dropbox.AuthDriver.BrowserBase#localStorage} to avoid getting
+  # a confusing console warning.
+  localStorage: ->
+    null
+
 # OAuth driver code specific to Chrome packaged applications.
 #
 # @see http://developer.chrome.com/apps/about_apps.html
@@ -88,7 +94,7 @@ class Dropbox.AuthDriver.ChromeApp extends Dropbox.AuthDriver.ChromeBase
   #   tokens in a single application
   constructor: (options) ->
     super options
-    @receiverUrl = "https://#{chrome.runtime.id}.chromiumapp.org/"
+    @receiverUrl = chrome.identity.getRedirectURL()
 
   # Uses the Chrome identity API to drive the OAuth 2 flow.
   #
@@ -97,6 +103,9 @@ class Dropbox.AuthDriver.ChromeApp extends Dropbox.AuthDriver.ChromeBase
   doAuthorize: (authUrl, stateParam, client, callback) ->
     chrome.identity.launchWebAuthFlow url: authUrl, interactive: true,
         (redirectUrl) =>
+          if chrome.runtime.lastError
+            # TODO(pwnall): pass lastError.message in a custom error
+            callback null
           if @locationStateParam(redirectUrl) is stateParam
             stateParam = false  # Avoid having this matched in the future.
             callback Dropbox.Util.Oauth.queryParamsFromUrl(redirectUrl)

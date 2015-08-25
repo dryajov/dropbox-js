@@ -731,7 +731,7 @@ buildClientTests = (clientKeys) ->
       return done() unless @view1
       @timeout 20 * 1000  # This sequence is slow on the current API server.
 
-      @newFile = "#{@testFolder}/test resumable arraybuffer upload.png"
+      @newFile = "#{@testFolder}/test resumable arraybufferview upload.png"
       @client.resumableUploadStep @arrayBuffer1, null, (error, cursor1) =>
         expect(error).to.equal null
         expect(cursor1).to.be.instanceOf Dropbox.Http.UploadCursor
@@ -1459,6 +1459,19 @@ buildClientTests = (clientKeys) ->
             (String.fromCharCode buffer.readUInt8(i) for i in [0...length]).
             join('')
         expect(bytes).to.contain 'PNG'
+        done()
+
+  describe '#subtleFileUrl', ->
+    it 'produces an URL that contains the file name', ->
+      url = @client.subtleFileUrl @textFile
+      expect(url).to.contain 'test-file.txt'
+
+    it 'produces an URL that can be used to read the file', (done) ->
+      url = @client.subtleFileUrl @textFile
+      xhr = new Dropbox.Util.Xhr 'GET', url
+      xhr.prepare().send (error, data) =>
+        expect(error).to.equal null
+        expect(data).to.equal @textFileData
         done()
 
   describe '#pullChanges', ->
